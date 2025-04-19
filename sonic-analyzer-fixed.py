@@ -35,7 +35,7 @@ consonant_time = 0.490     # seconds where the transient occurs
 zoom_width = 0.5         # seconds of window width (e.g., 20 ms)
 
 # Static spectrum snapshot around a vowel sound
-vowel_center = 0.677       # seconds at center of vowel (e.g., "ah" or "ee")
+vowel_center = 1.141       # seconds at center of vowel (e.g., "ah" or "ee")
 vowel_duration = 0.1     # seconds of vowel window (e.g., 50 ms)
 
 # Spectrogram settings
@@ -81,8 +81,9 @@ try:
     # First, calculate the maximum amplitude across both audio files for the zoom region
     amp_zooms = []
     for data, sr, label in [(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')]:
-        start = int((consonant_time - zoom_width/2) * sr)
-        end   = int((consonant_time + zoom_width/2) * sr)
+        # Calculate time window - start slightly before consonant
+        start = int((consonant_time - 0.05) * sr)  # Start 50ms before consonant
+        end = int((consonant_time + zoom_width) * sr)  # Extend forward for full duration
         
         # Safety check to avoid index errors
         if start < 0:
@@ -108,8 +109,9 @@ try:
     
     # Now plot with the same y-axis limits
     for idx, (data, sr, label) in enumerate([(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')], start=1):
-        start = int((consonant_time - zoom_width/2) * sr)
-        end   = int((consonant_time + zoom_width/2) * sr)
+        # Calculate time window - start slightly before consonant
+        start = int((consonant_time - 0.05) * sr)  # Start 50ms before consonant
+        end = int((consonant_time + zoom_width) * sr)  # Extend forward for full duration
         
         # Safety check to avoid index errors
         if start < 0:
@@ -120,19 +122,22 @@ try:
         if end <= start:
             continue  # Skip this iteration, warning was already printed above
             
-        t_zoom = np.linspace(consonant_time - zoom_width/2,
-                             consonant_time + zoom_width/2,
-                             end - start)
+        t_zoom = np.linspace(consonant_time - 0.05,
+                            consonant_time + zoom_width,
+                            end - start)
         amp_zoom = data[start:end]
         
         plt.figure()
         plt.plot(t_zoom, amp_zoom)
-        plt.title(f'{label} Transient Zoom ({zoom_width*1000:.0f} ms around {consonant_time:.2f}s)')
+        plt.axvline(x=consonant_time, color='r', linestyle='--', alpha=0.5, 
+                   label=f'Consonant ({consonant_time:.3f}s)')
+        plt.title(f'{label} Transient Zoom\n({(consonant_time-0.05):.3f}s - {(consonant_time+zoom_width):.3f}s)')
         plt.xlabel('Time (s)')
         plt.ylabel('Amplitude')
         # Set the same y-axis limits for both plots
         if amp_zooms:
             plt.ylim(y_min, y_max)
+        plt.legend()
         plt.tight_layout()
         print(f"  Created waveform plot for {label}")
 
@@ -150,6 +155,75 @@ try:
         plt.colorbar(label='Intensity [dB]')
         plt.tight_layout()
         print(f"  Created spectrogram for {label}")
+
+    # ---------------------
+    # 2.5) FOCUSED SPECTROGRAM AND AVERAGE FREQUENCY RESPONSE
+    # ---------------------
+    print("Generating focused spectrograms and average frequency response...")
+    
+    # Calculate the time window indices for both files - start slightly before consonant
+    focus_start_time = consonant_time - 0.05  # Start 50ms before consonant
+    focus_end_time = consonant_time + zoom_width  # Extend forward for full duration
+    
+    plt.figure(figsize=(12, 8))
+    
+    # Create subplots - top row for spectrograms, bottom for average frequency response
+    ax1 = plt.subplot(221)
+    ax2 = plt.subplot(222)
+    ax3 = plt.subplot(212)
+    
+    avg_specs = []  # Store average spectra for comparison
+    
+    for idx, (data, sr, label) in enumerate([(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')]):
+        # Calculate indices for the focused region
+        start_idx = int(focus_start_time * sr)
+        end_idx = int(focus_end_time * sr)
+        
+        # Safety checks
+        if start_idx < 0:
+            start_idx = 0
+        if end_idx >= len(data):
+            end_idx = len(data) - 1
+            
+        # Extract the focused segment
+        focused_data = data[start_idx:end_idx]
+        
+        # Calculate spectrogram
+        f, t, Sxx = spectrogram(focused_data, fs=sr, nperseg=n_fft, 
+                               noverlap=hop_length, window=get_window(window, n_fft))
+        
+        # Convert to dB scale
+        Sxx_db = 10 * np.log10(Sxx + 1e-10)  # Add small number to avoid log(0)
+        
+        # Calculate average spectrum across time
+        avg_spectrum = np.mean(Sxx_db, axis=1)
+        avg_specs.append((f, avg_spectrum))
+        
+        # Plot focused spectrogram
+        ax = ax1 if idx == 0 else ax2
+        im = ax.pcolormesh(t + focus_start_time, f, Sxx_db, shading='gouraud')
+        ax.set_title(f'{label} Focused Spectrogram\n({focus_start_time:.2f}s - {focus_end_time:.2f}s)')
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Frequency (Hz)')
+        plt.colorbar(im, ax=ax, label='Power/Frequency (dB/Hz)')
+        
+        # Add marker for the consonant time
+        ax.axvline(x=consonant_time, color='r', linestyle='--', alpha=0.5, 
+                  label=f'Consonant ({consonant_time:.2f}s)')
+        ax.legend()
+    
+    # Plot average frequency response comparison
+    for (f, avg_spec), label in zip(avg_specs, ['SM7B', 'Samson']):
+        ax3.plot(f, avg_spec, label=label)
+    
+    ax3.set_title('Average Frequency Response Comparison')
+    ax3.set_xlabel('Frequency (Hz)')
+    ax3.set_ylabel('Average Power (dB)')
+    ax3.legend()
+    ax3.grid(True)
+    
+    plt.tight_layout()
+    print("  Created focused spectrograms and average frequency response plot")
 
     # ---------------------
     # 3) STATIC SPECTRUM SNAPSHOT (Frequency Distribution)
