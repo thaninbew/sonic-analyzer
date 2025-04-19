@@ -32,11 +32,11 @@ print(f"  {file2} exists: {os.path.exists(file2)}")
 
 # Zoom window around a sharp consonant (e.g., a "p" or "t")
 consonant_time = 0.490     # seconds where the transient occurs
-zoom_width = 0.1         # seconds of window width (e.g., 20 ms)
+zoom_width = 0.5         # seconds of window width (e.g., 20 ms)
 
 # Static spectrum snapshot around a vowel sound
-vowel_center = 2.00       # seconds at center of vowel (e.g., "ah" or "ee")
-vowel_duration = 0.05     # seconds of vowel window (e.g., 50 ms)
+vowel_center = 0.677       # seconds at center of vowel (e.g., "ah" or "ee")
+vowel_duration = 0.1     # seconds of vowel window (e.g., 50 ms)
 
 # Spectrogram settings
 n_fft = 2048
@@ -77,7 +77,10 @@ try:
     # 1) WAVEFORM ZOOM (Transient Response)
     # ---------------------
     print("Generating waveform plots...")
-    for idx, (data, sr, label) in enumerate([(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')], start=1):
+    
+    # First, calculate the maximum amplitude across both audio files for the zoom region
+    amp_zooms = []
+    for data, sr, label in [(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')]:
         start = int((consonant_time - zoom_width/2) * sr)
         end   = int((consonant_time + zoom_width/2) * sr)
         
@@ -91,6 +94,32 @@ try:
             print(f"WARNING: Invalid time window for {label}. Skipping waveform plot.")
             continue
             
+        amp_zoom = data[start:end]
+        amp_zooms.append(amp_zoom)
+    
+    # Calculate the global min and max for y-axis limits
+    if amp_zooms:
+        y_min = min(np.min(amp) for amp in amp_zooms)
+        y_max = max(np.max(amp) for amp in amp_zooms)
+        # Add a small margin (10%) to make the plot look better
+        y_range = y_max - y_min
+        y_min -= y_range * 0.1
+        y_max += y_range * 0.1
+    
+    # Now plot with the same y-axis limits
+    for idx, (data, sr, label) in enumerate([(data1, sr1, 'SM7B'), (data2, sr2, 'Samson')], start=1):
+        start = int((consonant_time - zoom_width/2) * sr)
+        end   = int((consonant_time + zoom_width/2) * sr)
+        
+        # Safety check to avoid index errors
+        if start < 0:
+            start = 0
+        if end >= len(data):
+            end = len(data) - 1
+            
+        if end <= start:
+            continue  # Skip this iteration, warning was already printed above
+            
         t_zoom = np.linspace(consonant_time - zoom_width/2,
                              consonant_time + zoom_width/2,
                              end - start)
@@ -101,6 +130,9 @@ try:
         plt.title(f'{label} Transient Zoom ({zoom_width*1000:.0f} ms around {consonant_time:.2f}s)')
         plt.xlabel('Time (s)')
         plt.ylabel('Amplitude')
+        # Set the same y-axis limits for both plots
+        if amp_zooms:
+            plt.ylim(y_min, y_max)
         plt.tight_layout()
         print(f"  Created waveform plot for {label}")
 
